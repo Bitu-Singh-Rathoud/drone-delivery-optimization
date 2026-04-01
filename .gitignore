@@ -1,0 +1,41 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# ---- Pytest ----
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ---- Spark ----
+/tmp/
+derby.log
+metastore_db/
+spark-warehouse/
+
+# ---- IDE ----
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ---- Environment ----
+.env
+*.env.local
+
+# ---- Docker ----
+*.log
+
+# ---- AWS ----
+.aws/credentials
