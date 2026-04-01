@@ -109,10 +109,8 @@ if __name__ == "__main__":
 
     def _print_handler(telemetry: DroneTelemetry) -> None:
         logger.info(
-            "[%s] lat=%.5f lon=%.5f alt=%.1fm battery=%.1f%% status=%s",
+            "[%s] alt=%.1fm battery=%.1f%% status=%s",
             telemetry.drone_id,
-            telemetry.latitude,
-            telemetry.longitude,
             telemetry.altitude,
             telemetry.battery_level,
             telemetry.status,
