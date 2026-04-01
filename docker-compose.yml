@@ -1,0 +1,126 @@
+version: "3.8"
+
+services:
+  # -----------------------------------------------------------------------
+  # ZooKeeper
+  # -----------------------------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------------------------------
+  # Kafka Broker
+  # -----------------------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # -----------------------------------------------------------------------
+  # Schema Registry (optional – useful for Avro schemas in the future)
+  # -----------------------------------------------------------------------
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:29092"
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+
+  # -----------------------------------------------------------------------
+  # Kafka UI (Kowl / kafka-ui)
+  # -----------------------------------------------------------------------
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+
+  # -----------------------------------------------------------------------
+  # Drone Telemetry Producer
+  # -----------------------------------------------------------------------
+  drone-producer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: drone-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TELEMETRY_TOPIC: drone-telemetry
+      KAFKA_PROCESSED_TOPIC: drone-processed
+      KAFKA_ALERTS_TOPIC: drone-alerts
+    command: python -m src.kafka.drone_producer
+    restart: on-failure
+
+  # -----------------------------------------------------------------------
+  # Spark Streaming Pipeline
+  # -----------------------------------------------------------------------
+  spark-pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spark-pipeline
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPARK_MASTER: local[2]
+      STREAMING_CHECKPOINT_LOCATION: /tmp/checkpoints
+      # Set real AWS credentials via .env file or environment
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-drone-telemetry-data}
+      REDSHIFT_HOST: ${REDSHIFT_HOST:-}
+      REDSHIFT_USER: ${REDSHIFT_USER:-}
+      REDSHIFT_PASSWORD: ${REDSHIFT_PASSWORD:-}
+    command: python -m scripts.run_pipeline
+    restart: on-failure
+
+networks:
+  default:
+    name: drone-pipeline-network
